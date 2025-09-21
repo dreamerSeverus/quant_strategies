@@ -1,0 +1,472 @@
+//@version=6
+strategy("Divergence ATR Strategy", overlay=true, max_bars_back=1000, max_lines_count=400, max_labels_count=400,initial_capital=1000, default_qty_type=strategy.percent_of_equity,default_qty_value=100)
+
+// ==== 参数设置 ====
+prd = input.int(5, "Pivot Period", minval=1, maxval=50)
+source = input.string("Close", "Source for Pivot Points", options=["Close", "High/Low"])
+searchdiv = input.string("Regular", "Divergence Type", options=["Regular", "Hidden", "Regular/Hidden"])
+showlimit = input.int(1, "Minimum Number of Divergence", minval=1, maxval=11)
+maxpp = input.int(10, "Maximum Pivot Points to Check", minval=1, maxval=20)
+maxbars = input.int(100, "Maximum Bars to Check", minval=30, maxval=200)
+dontconfirm = input.bool(false, "Don't Wait for Confirmation")
+
+atr_length = input.int(14, "ATR Length", minval=1)
+atr_smoothing = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "WMA"])
+atr_multiplier = input.float(1.5, "ATR Multiplier")
+
+// ==== 交易方向选择 ====
+trade_direction = input.string("Both", "Trade Direction", options=["Long Only", "Short Only", "Both"])
+
+calcmacd = input.bool(true, "MACD")
+calcmacda = input.bool(true, "MACD Histogram")
+calcrsi = input.bool(true, "RSI")
+calcstoc = input.bool(true, "Stochastic")
+calccci = input.bool(true, "CCI")
+calcmom = input.bool(true, "Momentum")
+calcobv = input.bool(true, "OBV")
+calcvwmacd = input.bool(true, "VWmacd")
+calccmf = input.bool(true, "Chaikin Money Flow")
+calcmfi = input.bool(true, "Money Flow Index")
+
+showlines = input.bool(true, "Show Divergence Lines")
+showpivot = input.bool(false, "Show Pivot Points")
+pos_reg_div_col = input.color(color.yellow, "Positive Regular Divergence")
+neg_reg_div_col = input.color(color.navy, "Negative Regular Divergence")
+pos_hid_div_col = input.color(color.lime, "Positive Hidden Divergence")
+neg_hid_div_col = input.color(color.red, "Negative Hidden Divergence")
+
+// ==== ATR计算 ====
+ma_function(source_data, length) =>
+    switch atr_smoothing
+        "RMA" => ta.rma(source_data, length)
+        "SMA" => ta.sma(source_data, length)
+        "EMA" => ta.ema(source_data, length)
+        "WMA" => ta.wma(source_data, length)
+
+atr_value = ma_function(ta.tr(true), atr_length) * atr_multiplier
+atr_upper = high + atr_value
+atr_lower = low - atr_value
+
+// ==== 技术指标 ====
+rsi_val = ta.rsi(close, 14)
+[macd_val, signal, deltamacd] = ta.macd(close, 12, 26, 9)
+moment = ta.mom(close, 10)
+cci_val = ta.cci(close, 10)
+Obv = ta.obv
+stk = ta.sma(ta.stoch(close, high, low, 14), 3)
+maFast = ta.vwma(close, 12)
+maSlow = ta.vwma(close, 26)
+vwmacd = maFast - maSlow
+Cmfm = ((close-low) - (high-close)) / (high - low)
+Cmfv = Cmfm * volume
+cmf = ta.sma(Cmfv, 21) / ta.sma(volume,21)
+Mfi = ta.mfi(hlc3, 14)
+
+// ==== 枢轴点检测 ====
+ph = ta.pivothigh((source == "Close" ? close : high), prd, prd)
+pl = ta.pivotlow((source == "Close" ? close : low), prd, prd)
+
+ph_detected = not na(ph)
+pl_detected = not na(pl)
+
+plotshape(ph_detected and showpivot, text="H", style=shape.labeldown, color=color.new(color.white, 100), textcolor=color.red, location=location.abovebar, offset=-prd)
+plotshape(pl_detected and showpivot, text="L", style=shape.labelup, color=color.new(color.white, 100), textcolor=color.lime, location=location.belowbar, offset=-prd)
+
+// ==== 存储枢轴点 ====
+var int maxarraysize = 20
+var ph_positions = array.new<int>(maxarraysize, 0)
+var pl_positions = array.new<int>(maxarraysize, 0)
+var ph_vals = array.new<float>(maxarraysize, 0.)
+var pl_vals = array.new<float>(maxarraysize, 0.)
+
+if ph_detected
+    array.unshift(ph_positions, bar_index)
+    array.unshift(ph_vals, ph)
+    if array.size(ph_positions) > maxarraysize
+        array.pop(ph_positions)
+        array.pop(ph_vals)
+
+if pl_detected
+    array.unshift(pl_positions, bar_index)
+    array.unshift(pl_vals, pl)
+    if array.size(pl_positions) > maxarraysize
+        array.pop(pl_positions)
+        array.pop(pl_vals)
+
+// ==== 背离检测函数 ====
+positive_regular_positive_hidden_divergence(src, cond) =>
+    divlen = 0
+    prsc = source == "Close" ? close : low
+    if dontconfirm or src > src[1] or close > close[1]
+        startpoint = dontconfirm ? 0 : 1
+        for x = 0 to maxpp - 1
+            len = bar_index - array.get(pl_positions, x) + prd
+            if array.get(pl_positions, x) == 0 or len > maxbars
+                break
+            if len > 5 and 
+               ((cond == 1 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(pl_vals, x))) or
+               (cond == 2 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(pl_vals, x))))
+                slope1 = (src[startpoint] - src[len]) / (len - startpoint)
+                virtual_line1 = src[startpoint] - slope1
+                slope2 = (close[startpoint] - close[len]) / (len - startpoint)
+                virtual_line2 = close[startpoint] - slope2
+                arrived = true
+                for y = 1 + startpoint to len - 1
+                    if src[y] < virtual_line1 or nz(close[y]) < virtual_line2
+                        arrived := false
+                        break
+                    virtual_line1 := virtual_line1 - slope1
+                    virtual_line2 := virtual_line2 - slope2
+                
+                if arrived
+                    divlen := len
+                    break
+    divlen
+
+negative_regular_negative_hidden_divergence(src, cond) =>
+    divlen = 0
+    prsc = source == "Close" ? close : high
+    if dontconfirm or src < src[1] or close < close[1]
+        startpoint = dontconfirm ? 0 : 1
+        for x = 0 to maxpp - 1
+            len = bar_index - array.get(ph_positions, x) + prd
+            if array.get(ph_positions, x) == 0 or len > maxbars
+                break
+            if len > 5 and 
+               ((cond == 1 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(ph_vals, x))) or 
+               (cond == 2 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(ph_vals, x))))
+                slope1 = (src[startpoint] - src[len]) / (len - startpoint)
+                virtual_line1 = src[startpoint] - slope1
+                slope2 = (close[startpoint] - nz(close[len])) / (len - startpoint)
+                virtual_line2 = close[startpoint] - slope2
+                arrived = true
+                for y = 1 + startpoint to len - 1
+                    if src[y] > virtual_line1 or nz(close[y]) > virtual_line2
+                        arrived := false
+                        break
+                    virtual_line1 := virtual_line1 - slope1
+                    virtual_line2 := virtual_line2 - slope2
+                
+                if arrived
+                    divlen := len
+                    break
+    divlen
+
+calculate_divs(cond, indicator) =>
+    divs = array.new<int>(4, 0)
+    array.set(divs, 0, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 1) : 0)
+    array.set(divs, 1, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 1) : 0)
+    array.set(divs, 2, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 2) : 0)
+    array.set(divs, 3, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 2) : 0)
+    divs
+
+// ==== 存储所有背离 ====
+var all_divergences = array.new<int>(40)
+
+array_set_divs(div_pointer, index) =>
+    for x = 0 to 3
+        array.set(all_divergences, index * 4 + x, array.get(div_pointer, x))
+
+array_set_divs(calculate_divs(calcmacd, macd_val), 0)
+array_set_divs(calculate_divs(calcmacda, deltamacd), 1)
+array_set_divs(calculate_divs(calcrsi, rsi_val), 2)
+array_set_divs(calculate_divs(calcstoc, stk), 3)
+array_set_divs(calculate_divs(calccci, cci_val), 4)
+array_set_divs(calculate_divs(calcmom, moment), 5)
+array_set_divs(calculate_divs(calcobv, Obv), 6)
+array_set_divs(calculate_divs(calcvwmacd, vwmacd), 7)
+array_set_divs(calculate_divs(calccmf, cmf), 8)
+array_set_divs(calculate_divs(calcmfi, Mfi), 9)
+
+total_div = 0
+for x = 0 to array.size(all_divergences) - 1
+    total_div := total_div + math.round(math.sign(array.get(all_divergences, x)))
+
+if total_div < showlimit
+    array.fill(all_divergences, 0)
+
+pos_reg_div_detected = false
+neg_reg_div_detected = false
+pos_hid_div_detected = false
+neg_hid_div_detected = false
+
+for x = 0 to 9
+    for y = 0 to 3
+        if array.get(all_divergences, x * 4 + y) > 0
+            if y == 0
+                pos_reg_div_detected := true
+            if y == 1
+                neg_reg_div_detected := true
+            if y == 2
+                pos_hid_div_detected := true
+            if y == 3
+                neg_hid_div_detected := true
+
+long_signal = pos_reg_div_detected or pos_hid_div_detected
+short_signal = neg_reg_div_detected or neg_hid_div_detected
+
+// 根据交易方向设置过滤信号
+filtered_long_signal = long_signal and (trade_direction == "Long Only" or trade_direction == "Both")
+filtered_short_signal = short_signal and (trade_direction == "Short Only" or trade_direction == "Both")
+
+// ==== 高级动态止损止盈系统 ====
+var float long_stop_loss = na
+var float long_take_profit = na
+var float short_stop_loss = na
+var float short_take_profit = na
+var float entry_price = na
+var float entry_stop_loss = na
+var float entry_take_profit = na
+
+var take_profit_history = array.new<float>(0)
+var stop_loss_history = array.new<float>(0)
+
+// 动态止损止盈更新逻辑
+if strategy.position_size > 0
+    current_stop = low - atr_value
+    current_take_profit = high + atr_value
+    
+    if close > entry_price
+        // 趋势符合预期时，止损只能上调，不能低于入场止损
+        if current_stop > long_stop_loss or na(long_stop_loss)
+            long_stop_loss := math.max(current_stop, entry_stop_loss)
+            // 记录止损历史，同时将入场价格也作为止损位考虑
+            array.push(stop_loss_history, long_stop_loss)
+            array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
+            if array.size(stop_loss_history) > 50
+                array.shift(stop_loss_history)
+                array.shift(stop_loss_history)
+        
+        if current_take_profit > long_take_profit or na(long_take_profit)
+            long_take_profit := current_take_profit
+            array.push(take_profit_history, long_take_profit)
+            if array.size(take_profit_history) > 50
+                array.shift(take_profit_history)
+    else
+        // 趋势不符合预期时，更新止损历史但不上调，入场价格始终在数组中
+        array.push(stop_loss_history, current_stop)
+        array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
+        if array.size(stop_loss_history) > 50
+            array.shift(stop_loss_history)
+            array.shift(stop_loss_history)
+            
+else if strategy.position_size < 0
+    current_stop = high + atr_value
+    current_take_profit = low - atr_value
+    
+    if close < entry_price
+        // 趋势符合预期时，止损只能下调，不能高于入场止损
+        if current_stop < short_stop_loss or na(short_stop_loss)
+            short_stop_loss := math.min(current_stop, entry_stop_loss)
+            // 记录止损历史，同时将入场价格也作为止损位考虑
+            array.push(stop_loss_history, short_stop_loss)
+            array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
+            if array.size(stop_loss_history) > 50
+                array.shift(stop_loss_history)
+                array.shift(stop_loss_history)
+        
+        if current_take_profit < short_take_profit or na(short_take_profit)
+            short_take_profit := current_take_profit
+            array.push(take_profit_history, short_take_profit)
+            if array.size(take_profit_history) > 50
+                array.shift(take_profit_history)
+    else
+        // 趋势不符合预期时，更新止损历史但不下调，入场价格始终在数组中
+        array.push(stop_loss_history, current_stop)
+        array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
+        if array.size(stop_loss_history) > 50
+            array.shift(stop_loss_history)
+            array.shift(stop_loss_history)
+
+// 交易逻辑
+if filtered_long_signal and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+    entry_price := close
+    entry_stop_loss := low - atr_value
+    entry_take_profit := close + atr_value
+    long_stop_loss := entry_stop_loss
+    long_take_profit := entry_take_profit
+    array.clear(take_profit_history)
+    array.clear(stop_loss_history)
+    array.push(take_profit_history, entry_take_profit)
+    array.push(stop_loss_history, entry_stop_loss)
+    array.push(stop_loss_history, entry_price)  // 入场价格作为初始保护性止损
+
+if filtered_short_signal and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+    entry_price := close
+    entry_stop_loss := high + atr_value
+    entry_take_profit := close - atr_value
+    short_stop_loss := entry_stop_loss
+    short_take_profit := entry_take_profit
+    array.clear(take_profit_history)
+    array.clear(stop_loss_history)
+    array.push(take_profit_history, entry_take_profit)
+    array.push(stop_loss_history, entry_stop_loss)
+    array.push(stop_loss_history, entry_price)  // 入场价格作为初始保护性止损
+
+// ==== 获取最近的止盈止损位函数 ====
+get_nearest_take_profit() =>
+    nearest_tp = float(na)
+    if array.size(take_profit_history) > 0
+        for i = array.size(take_profit_history) - 1 to 0
+            tp_level = array.get(take_profit_history, i)
+            if strategy.position_size > 0
+                // 多头：找到最近的（最小的）止盈位
+                if close <= tp_level and (na(nearest_tp) or tp_level < nearest_tp)
+                    nearest_tp := tp_level
+            else if strategy.position_size < 0
+                // 空头：找到最近的（最大的）止盈位
+                if close >= tp_level and (na(nearest_tp) or tp_level > nearest_tp)
+                    nearest_tp := tp_level
+    nearest_tp
+
+get_nearest_stop_loss() =>
+    nearest_sl = float(na)
+    if array.size(stop_loss_history) > 0
+        for i = array.size(stop_loss_history) - 1 to 0
+            sl_level = array.get(stop_loss_history, i)
+            if strategy.position_size > 0
+                // 多头：找到最近的（最大的）止损位，包括入场价格
+                if close >= sl_level and (na(nearest_sl) or sl_level > nearest_sl)
+                    nearest_sl := sl_level
+            else if strategy.position_size < 0
+                // 空头：找到最近的（最小的）止损位，包括入场价格
+                if close <= sl_level and (na(nearest_sl) or sl_level < nearest_sl)
+                    nearest_sl := sl_level
+    nearest_sl
+
+// 高级平仓条件
+// 先声明变量
+nearest_tp = float(na)
+nearest_sl = float(na)
+
+// 平仓条件
+if strategy.position_size > 0
+    // 多头平仓逻辑
+    nearest_tp := get_nearest_take_profit()
+    nearest_sl := get_nearest_stop_loss()
+    
+    // 1.3 价格趋势变化时，命中最近止盈位
+    if not na(nearest_tp) and close <= nearest_tp and close < entry_price
+        strategy.close("Long", comment="Nearest TP Hit")
+        // 重置变量
+        long_take_profit := na
+        long_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    // 2. 命中最近止损位
+    else if not na(nearest_sl) and close <= nearest_sl
+        strategy.close("Long", comment="Nearest SL Hit")
+        // 重置变量
+        long_take_profit := na
+        long_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    // 传统止损止盈
+    else if filtered_short_signal or close <= long_stop_loss
+        strategy.close("Long", comment="Exit Long")
+        long_take_profit := na
+        long_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    else if close >= long_take_profit
+        strategy.close("Long", comment="TP Long")
+        long_take_profit := na
+        long_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+
+if strategy.position_size < 0
+    // 空头平仓逻辑
+    nearest_tp := get_nearest_take_profit()
+    nearest_sl := get_nearest_stop_loss()
+    
+    // 1.3 价格趋势变化时，命中最近止盈位
+    if not na(nearest_tp) and close >= nearest_tp and close > entry_price
+        strategy.close("Short", comment="Nearest TP Hit")
+        // 重置变量
+        short_take_profit := na
+        short_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    // 2. 命中最近止损位
+    else if not na(nearest_sl) and close >= nearest_sl
+        strategy.close("Short", comment="Nearest SL Hit")
+        // 重置变量
+        short_take_profit := na
+        short_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    // 传统止损止盈
+    else if filtered_long_signal or close >= short_stop_loss
+        strategy.close("Short", comment="Exit Short")
+        short_take_profit := na
+        short_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+    else if close <= short_take_profit
+        strategy.close("Short", comment="TP Short")
+        short_take_profit := na
+        short_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
+
+// 绘制
+plot(atr_upper, title="ATR Upper", color=color.red)
+plot(atr_lower, title="ATR Lower", color=color.green)
+plot(strategy.position_size > 0 ? long_stop_loss : na, title="Long Stop Loss", color=color.red, linewidth=2)
+plot(strategy.position_size > 0 ? long_take_profit : na, title="Long Take Profit", color=color.green, linewidth=2)
+plot(strategy.position_size < 0 ? short_stop_loss : na, title="Short Stop Loss", color=color.red, linewidth=2)
+plot(strategy.position_size < 0 ? short_take_profit : na, title="Short Take Profit", color=color.green, linewidth=2)
+
+plotshape(filtered_long_signal, title="Long Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal)
+plotshape(filtered_short_signal, title="Short Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal)
+
+// 信息表格
+var info_table = table.new(position.top_right, 2, 8, border_width=1)
+if barstate.islast
+    table.cell(info_table, 0, 0, "ATR Value", text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 1, 0, str.tostring(atr_value, "#.####"), text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 0, 1, "Trade Direction", text_color=color.white, bgcolor=color.orange)
+    table.cell(info_table, 1, 1, trade_direction, text_color=color.white, bgcolor=color.orange)
+    table.cell(info_table, 0, 2, "Position", text_color=color.white, bgcolor=color.gray)
+    table.cell(info_table, 1, 2, strategy.position_size > 0 ? "Long" : strategy.position_size < 0 ? "Short" : "Flat", text_color=color.white, bgcolor=color.gray)
+    table.cell(info_table, 0, 3, "Entry Price", text_color=color.white, bgcolor=color.yellow)
+    table.cell(info_table, 1, 3, not na(entry_price) ? str.tostring(entry_price, "#.####") : "N/A", text_color=color.white, bgcolor=color.yellow)
+    table.cell(info_table, 0, 4, "Stop Loss", text_color=color.white, bgcolor=color.red)
+    table.cell(info_table, 1, 4, strategy.position_size > 0 ? str.tostring(long_stop_loss, "#.####") : strategy.position_size < 0 ? str.tostring(short_stop_loss, "#.####") : "N/A", text_color=color.white, bgcolor=color.red)
+    table.cell(info_table, 0, 5, "Take Profit", text_color=color.white, bgcolor=color.green)
+    table.cell(info_table, 1, 5, strategy.position_size > 0 ? str.tostring(long_take_profit, "#.####") : strategy.position_size < 0 ? str.tostring(short_take_profit, "#.####") : "N/A", text_color=color.white, bgcolor=color.green)
+    
+    // 新增：止盈价位历史数组显示
+    table.cell(info_table, 0, 6, "TP History", text_color=color.white, bgcolor=color.purple)
+    tp_history_text = ""
+    if array.size(take_profit_history) > 0
+        tp_history_text := "["
+        for i = 0 to math.min(array.size(take_profit_history) - 1, 4) // 最多显示5个
+            if i > 0
+                tp_history_text := tp_history_text + ", "
+            tp_history_text := tp_history_text + str.tostring(array.get(take_profit_history, i), "#.##")
+        if array.size(take_profit_history) > 5
+            tp_history_text := tp_history_text + "..."
+        tp_history_text := tp_history_text + "]"
+    else
+        tp_history_text := "Empty"
+    table.cell(info_table, 1, 6, tp_history_text, text_color=color.white, bgcolor=color.purple)
+    
+    // 新增：止损价位历史数组显示
+    table.cell(info_table, 0, 7, "SL History", text_color=color.white, bgcolor=color.maroon)
+    sl_history_text = ""
+    if array.size(stop_loss_history) > 0
+        sl_history_text := "["
+        for i = 0 to math.min(array.size(stop_loss_history) - 1, 4) // 最多显示5个
+            if i > 0
+                sl_history_text := sl_history_text + ", "
+            sl_history_text := sl_history_text + str.tostring(array.get(stop_loss_history, i), "#.##")
+        if array.size(stop_loss_history) > 5
+            sl_history_text := sl_history_text + "..."
+        sl_history_text := sl_history_text + "]"
+    else
+        sl_history_text := "Empty"
+    table.cell(info_table, 1, 7, sl_history_text, text_color=color.white, bgcolor=color.maroon)
