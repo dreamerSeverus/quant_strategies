@@ -10,136 +10,237 @@ maxpp = input.int(10, "Maximum Pivot Points to Check", minval=1, maxval=20)
 maxbars = input.int(100, "Maximum Bars to Check", minval=30, maxval=200)
 dontconfirm = input.bool(false, "Don't Wait for Confirmation")
 
-atr_length = input.int(14, "ATR Length", minval=1)
-atr_smoothing = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "WMA"])
-atr_multiplier = input.float(1.5, "ATR Multiplier")
+// ==== ATR(平均真实波动范围)参数设置 ====
+atr_length = input.int(14, "ATR Length", minval=1)  // ATR计算周期：用于计算平均波动性的K线数量
+atr_smoothing = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "WMA"])  // ATR平滑方式：选择不同的移动平均算法
+atr_multiplier = input.float(1.5, "ATR Multiplier")  // ATR倍数：放大ATR值来设置止损距离
 
 // ==== 交易方向选择 ====
-trade_direction = input.string("Both", "Trade Direction", options=["Long Only", "Short Only", "Both"])
+trade_direction = input.string("Both", "Trade Direction", options=["Long Only", "Short Only", "Both"])  // 交易方向：只做多、只做空或双向交易
 
-calcmacd = input.bool(true, "MACD")
-calcmacda = input.bool(true, "MACD Histogram")
-calcrsi = input.bool(true, "RSI")
-calcstoc = input.bool(true, "Stochastic")
-calccci = input.bool(true, "CCI")
-calcmom = input.bool(true, "Momentum")
-calcobv = input.bool(true, "OBV")
-calcvwmacd = input.bool(true, "VWmacd")
-calccmf = input.bool(true, "Chaikin Money Flow")
-calcmfi = input.bool(true, "Money Flow Index")
+// ==== 高级趋势判断参数 ====
+enable_trend_analysis = input.bool(true, "Enable Advanced Trend Analysis")  // 是否启用高级趋势分析：控制是否使用5分钟级别趋势判断
+macd_trend_length = input.int(5, "MACD Trend Period", minval=2, maxval=20)  // MACD趋势周期：检查最近几根K线的MACD直方图趋势
+rsi_trend_length = input.int(5, "RSI Trend Period", minval=2, maxval=20)  // RSI趋势周期：检查最近几根K线的RSI变化趋势
 
-showlines = input.bool(true, "Show Divergence Lines")
-showpivot = input.bool(false, "Show Pivot Points")
-pos_reg_div_col = input.color(color.yellow, "Positive Regular Divergence")
-neg_reg_div_col = input.color(color.navy, "Negative Regular Divergence")
-pos_hid_div_col = input.color(color.lime, "Positive Hidden Divergence")
-neg_hid_div_col = input.color(color.red, "Negative Hidden Divergence")
+// ==== MACD指标参数 ====
+fast_length = input.int(12, "MACD Fast Length")  // MACD快线周期：计算快速指数移动平均的周期
+slow_length = input.int(26, "MACD Slow Length")  // MACD慢线周期：计算慢速指数移动平均的周期
+signal_length = input.int(9, "MACD Signal Length")  // MACD信号线周期：对MACD线进行平滑处理的周期
 
-// ==== ATR计算 ====
+// ==== 多指标背离检测开关 ====
+// 每个布尔值控制是否启用相应指标的背离检测
+calcmacd = input.bool(true, "MACD")  // 是否计算MACD背离
+calcmacda = input.bool(true, "MACD Histogram")  // 是否计算MACD直方图背离
+calcrsi = input.bool(true, "RSI")  // 是否计算RSI背离
+calcstoc = input.bool(true, "Stochastic")  // 是否计算随机指标背离
+calccci = input.bool(true, "CCI")  // 是否计算商品通道指数背离
+calcmom = input.bool(true, "Momentum")  // 是否计算动量指标背离
+calcobv = input.bool(true, "OBV")  // 是否计算成交量平衡指标背离
+calcvwmacd = input.bool(true, "VWmacd")  // 是否计算成交量加权MACD背离
+calccmf = input.bool(true, "Chaikin Money Flow")  // 是否计算资金流量指标背离
+calcmfi = input.bool(true, "Money Flow Index")  // 是否计算资金流量指数背离
+
+// ==== 图形显示控制 ====
+showlines = input.bool(true, "Show Divergence Lines")  // 是否显示背离连接线
+showpivot = input.bool(false, "Show Pivot Points")  // 是否显示枢轴点标记
+// 背离线条颜色设置
+pos_reg_div_col = input.color(color.yellow, "Positive Regular Divergence")  // 正向常规背离颜色
+neg_reg_div_col = input.color(color.navy, "Negative Regular Divergence")  // 负向常规背离颜色
+pos_hid_div_col = input.color(color.lime, "Positive Hidden Divergence")  // 正向隐藏背离颜色
+neg_hid_div_col = input.color(color.red, "Negative Hidden Divergence")  // 负向隐藏背离颜色
+
+// ==== ATR计算函数 ====
+// 根据用户选择的平滑方式计算移动平均
 ma_function(source_data, length) =>
     switch atr_smoothing
-        "RMA" => ta.rma(source_data, length)
-        "SMA" => ta.sma(source_data, length)
-        "EMA" => ta.ema(source_data, length)
-        "WMA" => ta.wma(source_data, length)
+        "RMA" => ta.rma(source_data, length)  // 威尔德平滑移动平均(RSI中使用的算法)
+        "SMA" => ta.sma(source_data, length)  // 简单移动平均
+        "EMA" => ta.ema(source_data, length)  // 指数移动平均
+        "WMA" => ta.wma(source_data, length)  // 加权移动平均
 
-atr_value = ma_function(ta.tr(true), atr_length) * atr_multiplier
-atr_upper = high + atr_value
-atr_lower = low - atr_value
+// 计算ATR值和通道边界
+atr_value = ma_function(ta.tr(true), atr_length) * atr_multiplier  // ATR值：真实波幅的平滑值乘以倍数
+atr_upper = high + atr_value  // ATR上轨：当前最高价加上ATR值，作为阻力参考
+atr_lower = low - atr_value  // ATR下轨：当前最低价减去ATR值，作为支撑参考
 
-// ==== 技术指标 ====
-rsi_val = ta.rsi(close, 14)
-[macd_val, signal, deltamacd] = ta.macd(close, 12, 26, 9)
-moment = ta.mom(close, 10)
-cci_val = ta.cci(close, 10)
-Obv = ta.obv
-stk = ta.sma(ta.stoch(close, high, low, 14), 3)
-maFast = ta.vwma(close, 12)
-maSlow = ta.vwma(close, 26)
-vwmacd = maFast - maSlow
-Cmfm = ((close-low) - (high-close)) / (high - low)
-Cmfv = Cmfm * volume
-cmf = ta.sma(Cmfv, 21) / ta.sma(volume,21)
-Mfi = ta.mfi(hlc3, 14)
+// ==== 技术指标计算 ====
+// 计算各种技术指标用于背离检测
+rsi_val = ta.rsi(close, 14)  // RSI指标：相对强弱指数，14周期
+[macd_val, signal, deltamacd] = ta.macd(close, fast_length, slow_length, signal_length)  // MACD三线：主线、信号线、直方图
+moment = ta.mom(close, 10)  // 动量指标：当前价格与10周期前价格的差值
+cci_val = ta.cci(close, 10)  // 商品通道指数：衡量价格偏离移动平均的程度
+Obv = ta.obv  // 成交量平衡指标：累计成交量变化
+stk = ta.sma(ta.stoch(close, high, low, 14), 3)  // 随机指标K值：经过3周期平滑的随机K值
+maFast = ta.vwma(close, fast_length)  // 成交量加权快速移动平均
+maSlow = ta.vwma(close, slow_length)  // 成交量加权慢速移动平均
+vwmacd = maFast - maSlow  // 成交量加权MACD：快线减慢线
+// 计算资金流量指标
+Cmfm = ((close-low) - (high-close)) / (high - low)  // 资金流量倍数：衡量收盘价在当日振幅中的位置
+Cmfv = Cmfm * volume  // 资金流量成交量：倍数乘以成交量
+cmf = ta.sma(Cmfv, 21) / ta.sma(volume,21)  // 资金流量指标：21周期平均资金流量除以平均成交量
+Mfi = ta.mfi(hlc3, 14)  // 资金流量指数：结合价格和成交量的动量指标
+
+// ==== 高级趋势分析指标 ====
+// 5分钟时间框架数据函数
+get_macd_5m() => ta.macd(close, fast_length, slow_length, signal_length)  // 获取5分钟MACD三线数据的函数
+get_rsi_5m() => ta.rsi(close, 14)  // 获取5分钟RSI数据的函数
+
+// 通过request.security获取5分钟级别指标数据
+[macd_line_5m, signal_5m, macd_5m] = request.security(syminfo.tickerid, "5", get_macd_5m())  // 5分钟MACD数据
+rsi_5m = request.security(syminfo.tickerid, "5", get_rsi_5m())  // 5分钟RSI数据
+
+// ==== 高级趋势跟随逻辑 ====
+// 检查当前趋势是否继续有利的核心函数
+check_trend_continuation() =>
+    if not enable_trend_analysis  // 如果未启用趋势分析
+        true  // 直接返回true，不进行趋势检查
+    else
+        // 1. MACD指标斜率方向检查
+        macd_slope_bullish = macd_line_5m > macd_line_5m[1]  // MACD主线向上：当前值大于前一根K线值
+        macd_slope_bearish = macd_line_5m < macd_line_5m[1]  // MACD主线向下：当前值小于前一根K线值
+        
+        // 2. MACD直方图高度持续与趋势同方向增高检查
+        macd_histogram_increasing = true  // 初始化：假设直方图持续增高
+        macd_histogram_decreasing = true  // 初始化：假设直方图持续降低
+        
+        // 检查最近几根K线的MACD直方图是否持续增高
+        for i = 0 to macd_trend_length - 2  // 遍历最近几根K线
+            if macd_5m[i] <= macd_5m[i + 1]  // 如果当前直方图值不大于前一个
+                macd_histogram_increasing := false  // 则不是持续增高
+            if macd_5m[i] >= macd_5m[i + 1]  // 如果当前直方图值不小于前一个
+                macd_histogram_decreasing := false  // 则不是持续降低
+        
+        // 3. RSI随交易方向同步变化检查
+        rsi_bullish_trend = true  // 初始化：假设RSI呈上升趋势
+        rsi_bearish_trend = true  // 初始化：假设RSI呈下降趋势
+        
+        // 检查最近几根K线的RSI是否持续变化
+        for i = 0 to rsi_trend_length - 2  // 遍历最近几根K线
+            if rsi_5m[i] <= rsi_5m[i + 1]  // 如果当前RSI不大于前一个
+                rsi_bullish_trend := false  // 则不是上升趋势
+            if rsi_5m[i] >= rsi_5m[i + 1]  // 如果当前RSI不小于前一个
+                rsi_bearish_trend := false  // 则不是下降趋势
+        log.info("macd_slope_bullish:"+str.tostring(macd_slope_bullish)+",macd_histogram_increasing:"+str.tostring(macd_histogram_increasing)+",rsi_bullish_trend:"+str.tostring(rsi_bullish_trend))
+        // 综合趋势判断逻辑
+        if strategy.position_size > 0  // 如果当前持有多头仓位
+            // 多头持仓：需要MACD斜率向上 + 直方图持续增高 + RSI向上
+            trend_favorable = macd_slope_bullish and macd_histogram_increasing and rsi_bullish_trend
+            trend_favorable  // 返回是否所有条件都满足
+        else if strategy.position_size < 0  // 如果当前持有空头仓位
+            // 空头持仓：需要MACD斜率向下 + 直方图持续降低 + RSI向下
+            trend_favorable = macd_slope_bearish and macd_histogram_decreasing and rsi_bearish_trend
+            trend_favorable  // 返回是否所有条件都满足
+        else  // 如果没有持仓
+            true  // 返回true，允许开新仓
 
 // ==== 枢轴点检测 ====
-ph = ta.pivothigh((source == "Close" ? close : high), prd, prd)
-pl = ta.pivotlow((source == "Close" ? close : low), prd, prd)
+// 检测价格的局部高点和低点
+ph = ta.pivothigh((source == "Close" ? close : high), prd, prd)  // 检测枢轴高点：根据设置使用收盘价或最高价
+pl = ta.pivotlow((source == "Close" ? close : low), prd, prd)  // 检测枢轴低点：根据设置使用收盘价或最低价
 
-ph_detected = not na(ph)
-pl_detected = not na(pl)
+// 判断是否检测到枢轴点
+ph_detected = not na(ph)  // 检测到枢轴高点：ph不为空值
+pl_detected = not na(pl)  // 检测到枢轴低点：pl不为空值
 
-plotshape(ph_detected and showpivot, text="H", style=shape.labeldown, color=color.new(color.white, 100), textcolor=color.red, location=location.abovebar, offset=-prd)
-plotshape(pl_detected and showpivot, text="L", style=shape.labelup, color=color.new(color.white, 100), textcolor=color.lime, location=location.belowbar, offset=-prd)
+// 在图表上标记枢轴点（如果启用显示）
+plotshape(ph_detected and showpivot, text="H", style=shape.labeldown, color=color.new(color.white, 100), textcolor=color.red, location=location.abovebar, offset=-prd)  // 高点标记
+plotshape(pl_detected and showpivot, text="L", style=shape.labelup, color=color.new(color.white, 100), textcolor=color.lime, location=location.belowbar, offset=-prd)  // 低点标记
 
-// ==== 存储枢轴点 ====
-var int maxarraysize = 20
-var ph_positions = array.new<int>(maxarraysize, 0)
-var pl_positions = array.new<int>(maxarraysize, 0)
-var ph_vals = array.new<float>(maxarraysize, 0.)
-var pl_vals = array.new<float>(maxarraysize, 0.)
+// ==== 存储枢轴点数据 ====
+// 使用数组存储历史枢轴点信息，用于背离检测
+var int maxarraysize = 20  // 数组最大大小：限制存储的历史枢轴点数量
+var ph_positions = array.new<int>(maxarraysize, 0)  // 存储枢轴高点的K线位置
+var pl_positions = array.new<int>(maxarraysize, 0)  // 存储枢轴低点的K线位置
+var ph_vals = array.new<float>(maxarraysize, 0.)  // 存储枢轴高点的价格值
+var pl_vals = array.new<float>(maxarraysize, 0.)  // 存储枢轴低点的价格值
 
+// 当检测到新的枢轴高点时，更新数组
 if ph_detected
-    array.unshift(ph_positions, bar_index)
-    array.unshift(ph_vals, ph)
-    if array.size(ph_positions) > maxarraysize
-        array.pop(ph_positions)
-        array.pop(ph_vals)
+    array.unshift(ph_positions, bar_index)  // 在数组开头插入当前K线索引
+    array.unshift(ph_vals, ph)  // 在数组开头插入枢轴高点价格
+    if array.size(ph_positions) > maxarraysize  // 如果数组大小超过限制
+        array.pop(ph_positions)  // 删除数组最后一个元素
+        array.pop(ph_vals)  // 删除价格数组最后一个元素
 
+// 当检测到新的枢轴低点时，更新数组
 if pl_detected
-    array.unshift(pl_positions, bar_index)
-    array.unshift(pl_vals, pl)
-    if array.size(pl_positions) > maxarraysize
-        array.pop(pl_positions)
-        array.pop(pl_vals)
+    array.unshift(pl_positions, bar_index)  // 在数组开头插入当前K线索引
+    array.unshift(pl_vals, pl)  // 在数组开头插入枢轴低点价格
+    if array.size(pl_positions) > maxarraysize  // 如果数组大小超过限制
+        array.pop(pl_positions)  // 删除数组最后一个元素
+        array.pop(pl_vals)  // 删除价格数组最后一个元素
 
 // ==== 背离检测函数 ====
+// 检测正向常规背离和正向隐藏背离的函数
 positive_regular_positive_hidden_divergence(src, cond) =>
-    divlen = 0
-    prsc = source == "Close" ? close : low
-    if dontconfirm or src > src[1] or close > close[1]
-        startpoint = dontconfirm ? 0 : 1
+    divlen = 0  // 初始化背离长度为0
+    prsc = source == "Close" ? close : low  // 根据设置选择价格源：收盘价或最低价
+    
+    // 检查是否满足背离检测条件
+    if dontconfirm or src > src[1] or close > close[1]  // 如果不等待确认 或 指标上升 或 价格上升
+        startpoint = dontconfirm ? 0 : 1  // 确定检测起始点：不等待确认从当前K线开始，否则从前一根开始
+        
+        // 遍历历史枢轴低点寻找背离
         for x = 0 to maxpp - 1
-            len = bar_index - array.get(pl_positions, x) + prd
-            if array.get(pl_positions, x) == 0 or len > maxbars
-                break
-            if len > 5 and 
-               ((cond == 1 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(pl_vals, x))) or
-               (cond == 2 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(pl_vals, x))))
-                slope1 = (src[startpoint] - src[len]) / (len - startpoint)
-                virtual_line1 = src[startpoint] - slope1
-                slope2 = (close[startpoint] - close[len]) / (len - startpoint)
-                virtual_line2 = close[startpoint] - slope2
-                arrived = true
+            len = bar_index - array.get(pl_positions, x) + prd  // 计算到历史枢轴点的距离
+            if array.get(pl_positions, x) == 0 or len > maxbars  // 如果枢轴点不存在或距离超过最大检查范围
+                break  // 退出循环
+            
+            // 检查背离条件
+            if len > 5 and   // 确保有足够的距离
+               ((cond == 1 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(pl_vals, x))) or  // 常规背离：指标新高但价格新低
+               (cond == 2 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(pl_vals, x))))  // 隐藏背离：指标新低但价格新高
+                
+                // 计算连接线斜率
+                slope1 = (src[startpoint] - src[len]) / (len - startpoint)  // 指标连接线斜率
+                virtual_line1 = src[startpoint] - slope1  // 虚拟指标连接线起始值
+                slope2 = (close[startpoint] - close[len]) / (len - startpoint)  // 价格连接线斜率
+                virtual_line2 = close[startpoint] - slope2  // 虚拟价格连接线起始值
+                
+                arrived = true  // 假设背离有效
+                
+                // 验证中间K线是否都在连接线之上（确保背离的连续性）
                 for y = 1 + startpoint to len - 1
-                    if src[y] < virtual_line1 or nz(close[y]) < virtual_line2
-                        arrived := false
+                    if src[y] < virtual_line1 or nz(close[y]) < virtual_line2  // 如果任何中间点低于连接线
+                        arrived := false  // 背离无效
                         break
-                    virtual_line1 := virtual_line1 - slope1
+                    virtual_line1 := virtual_line1 - slope1  // 更新虚拟连接线位置
                     virtual_line2 := virtual_line2 - slope2
                 
-                if arrived
-                    divlen := len
-                    break
-    divlen
+                if arrived  // 如果背离有效
+                    divlen := len  // 记录背离长度
+                    break  // 找到背离后退出
+    divlen  // 返回背离长度
 
+// 检测负向常规背离和负向隐藏背离的函数
 negative_regular_negative_hidden_divergence(src, cond) =>
-    divlen = 0
-    prsc = source == "Close" ? close : high
-    if dontconfirm or src < src[1] or close < close[1]
-        startpoint = dontconfirm ? 0 : 1
+    divlen = 0  // 初始化背离长度为0
+    prsc = source == "Close" ? close : high  // 根据设置选择价格源：收盘价或最高价
+    
+    // 检查是否满足背离检测条件
+    if dontconfirm or src < src[1] or close < close[1]  // 如果不等待确认 或 指标下降 或 价格下降
+        startpoint = dontconfirm ? 0 : 1  // 确定检测起始点
+        
+        // 遍历历史枢轴高点寻找背离
         for x = 0 to maxpp - 1
-            len = bar_index - array.get(ph_positions, x) + prd
-            if array.get(ph_positions, x) == 0 or len > maxbars
+            len = bar_index - array.get(ph_positions, x) + prd  // 计算到历史枢轴点的距离
+            if array.get(ph_positions, x) == 0 or len > maxbars  // 如果枢轴点不存在或距离超过范围
                 break
+            
+            // 检查背离条件
             if len > 5 and 
-               ((cond == 1 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(ph_vals, x))) or 
-               (cond == 2 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(ph_vals, x))))
+               ((cond == 1 and src[startpoint] < src[len] and prsc[startpoint] > nz(array.get(ph_vals, x))) or  // 常规背离：指标新低但价格新高
+               (cond == 2 and src[startpoint] > src[len] and prsc[startpoint] < nz(array.get(ph_vals, x))))  // 隐藏背离：指标新高但价格新低
+                
+                // 计算连接线斜率（逻辑同上，但方向相反）
                 slope1 = (src[startpoint] - src[len]) / (len - startpoint)
                 virtual_line1 = src[startpoint] - slope1
                 slope2 = (close[startpoint] - nz(close[len])) / (len - startpoint)
                 virtual_line2 = close[startpoint] - slope2
                 arrived = true
+                
+                // 验证中间K线是否都在连接线之下
                 for y = 1 + startpoint to len - 1
                     if src[y] > virtual_line1 or nz(close[y]) > virtual_line2
                         arrived := false
@@ -152,153 +253,100 @@ negative_regular_negative_hidden_divergence(src, cond) =>
                     break
     divlen
 
+// 计算指定指标的所有类型背离的函数
 calculate_divs(cond, indicator) =>
-    divs = array.new<int>(4, 0)
-    array.set(divs, 0, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 1) : 0)
-    array.set(divs, 1, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 1) : 0)
-    array.set(divs, 2, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 2) : 0)
-    array.set(divs, 3, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 2) : 0)
-    divs
+    divs = array.new<int>(4, 0)  // 创建包含4个元素的数组，分别存储4种背离类型的长度
+    array.set(divs, 0, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 1) : 0)  // 正向常规背离
+    array.set(divs, 1, cond and (searchdiv == "Regular" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 1) : 0)  // 负向常规背离
+    array.set(divs, 2, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? positive_regular_positive_hidden_divergence(indicator, 2) : 0)  // 正向隐藏背离
+    array.set(divs, 3, cond and (searchdiv == "Hidden" or searchdiv == "Regular/Hidden") ? negative_regular_negative_hidden_divergence(indicator, 2) : 0)  // 负向隐藏背离
+    divs  // 返回包含所有背离信息的数组
 
-// ==== 存储所有背离 ====
+// ==== 存储所有背离数据 ====
+// 创建大数组存储所有指标的背离信息（10个指标 × 4种背离类型 = 40个元素）
 var all_divergences = array.new<int>(40)
 
+// 将单个指标的背离数据存储到总数组中的函数
 array_set_divs(div_pointer, index) =>
-    for x = 0 to 3
-        array.set(all_divergences, index * 4 + x, array.get(div_pointer, x))
+    for x = 0 to 3  // 遍历4种背离类型
+        array.set(all_divergences, index * 4 + x, array.get(div_pointer, x))  // 将背离数据存储到对应位置
 
-array_set_divs(calculate_divs(calcmacd, macd_val), 0)
-array_set_divs(calculate_divs(calcmacda, deltamacd), 1)
-array_set_divs(calculate_divs(calcrsi, rsi_val), 2)
-array_set_divs(calculate_divs(calcstoc, stk), 3)
-array_set_divs(calculate_divs(calccci, cci_val), 4)
-array_set_divs(calculate_divs(calcmom, moment), 5)
-array_set_divs(calculate_divs(calcobv, Obv), 6)
-array_set_divs(calculate_divs(calcvwmacd, vwmacd), 7)
-array_set_divs(calculate_divs(calccmf, cmf), 8)
-array_set_divs(calculate_divs(calcmfi, Mfi), 9)
+// 计算并存储各指标的背离数据
+array_set_divs(calculate_divs(calcmacd, macd_val), 0)      // MACD主线背离（索引0-3）
+array_set_divs(calculate_divs(calcmacda, deltamacd), 1)    // MACD直方图背离（索引4-7）
+array_set_divs(calculate_divs(calcrsi, rsi_val), 2)        // RSI背离（索引8-11）
+array_set_divs(calculate_divs(calcstoc, stk), 3)           // 随机指标背离（索引12-15）
+array_set_divs(calculate_divs(calccci, cci_val), 4)        // CCI背离（索引16-19）
+array_set_divs(calculate_divs(calcmom, moment), 5)         // 动量指标背离（索引20-23）
+array_set_divs(calculate_divs(calcobv, Obv), 6)            // OBV背离（索引24-27）
+array_set_divs(calculate_divs(calcvwmacd, vwmacd), 7)      // 成交量加权MACD背离（索引28-31）
+array_set_divs(calculate_divs(calccmf, cmf), 8)            // 资金流量指标背离（索引32-35）
+array_set_divs(calculate_divs(calcmfi, Mfi), 9)            // 资金流量指数背离（索引36-39）
 
+// 统计总背离数量
 total_div = 0
-for x = 0 to array.size(all_divergences) - 1
-    total_div := total_div + math.round(math.sign(array.get(all_divergences, x)))
+for x = 0 to array.size(all_divergences) - 1  // 遍历所有背离数据
+    total_div := total_div + math.round(math.sign(array.get(all_divergences, x)))  // 累加非零背离的数量
 
+// 如果背离数量不足最小要求，清零所有背离
 if total_div < showlimit
-    array.fill(all_divergences, 0)
+    array.fill(all_divergences, 0)  // 将数组所有元素设为0
 
-pos_reg_div_detected = false
-neg_reg_div_detected = false
-pos_hid_div_detected = false
-neg_hid_div_detected = false
+// ==== 背离信号汇总 ====
+// 初始化各类背离检测结果
+pos_reg_div_detected = false  // 正向常规背离检测结果
+neg_reg_div_detected = false  // 负向常规背离检测结果
+pos_hid_div_detected = false  // 正向隐藏背离检测结果
+neg_hid_div_detected = false  // 负向隐藏背离检测结果
 
-for x = 0 to 9
-    for y = 0 to 3
-        if array.get(all_divergences, x * 4 + y) > 0
+// 遍历所有指标的背离结果，汇总各类背离信号
+for x = 0 to 9  // 遍历10个指标
+    for y = 0 to 3  // 遍历4种背离类型
+        if array.get(all_divergences, x * 4 + y) > 0  // 如果检测到背离
             if y == 0
-                pos_reg_div_detected := true
+                pos_reg_div_detected := true  // 发现正向常规背离
             if y == 1
-                neg_reg_div_detected := true
+                neg_reg_div_detected := true  // 发现负向常规背离
             if y == 2
-                pos_hid_div_detected := true
+                pos_hid_div_detected := true  // 发现正向隐藏背离
             if y == 3
-                neg_hid_div_detected := true
+                neg_hid_div_detected := true  // 发现负向隐藏背离
 
-long_signal = pos_reg_div_detected or pos_hid_div_detected
-short_signal = neg_reg_div_detected or neg_hid_div_detected
+// 生成最终交易信号
+long_signal = pos_reg_div_detected or pos_hid_div_detected   // 多头信号：任何正向背离
+short_signal = neg_reg_div_detected or neg_hid_div_detected  // 空头信号：任何负向背离
 
 // 根据交易方向设置过滤信号
-filtered_long_signal = long_signal and (trade_direction == "Long Only" or trade_direction == "Both")
-filtered_short_signal = short_signal and (trade_direction == "Short Only" or trade_direction == "Both")
+filtered_long_signal = long_signal and (trade_direction == "Long Only" or trade_direction == "Both")    // 过滤后的多头信号
+filtered_short_signal = short_signal and (trade_direction == "Short Only" or trade_direction == "Both")  // 过滤后的空头信号
 
-// ==== 高级动态止损止盈系统 ====
-var float long_stop_loss = na
-var float long_take_profit = na
-var float short_stop_loss = na
-var float short_take_profit = na
-var float entry_price = na
-var float entry_stop_loss = na
-var float entry_take_profit = na
+// ==== 交易逻辑 ====
+// 多头开仓逻辑
+if filtered_long_signal and strategy.position_size == 0  // 如果有过滤后的多头信号且当前无仓位
+    strategy.entry("Long", strategy.long)  // 开多头仓位
+    // 记录入场信息
+    entry_price := close                    // 记录入场价格
+    entry_stop_loss := low - atr_value      // 计算入场止损位
+    entry_take_profit := close + atr_value  // 计算入场止盈位
+    long_stop_loss := entry_stop_loss       // 设置当前止损位
+    long_take_profit := entry_take_profit   // 设置当前止盈位
+    // 初始化历史数组
+    array.clear(take_profit_history)        // 清空止盈历史
+    array.clear(stop_loss_history)          // 清空止损历史
+    array.push(take_profit_history, entry_take_profit)  // 添加初始止盈位
+    array.push(stop_loss_history, entry_stop_loss)      // 添加初始止损位
+    array.push(stop_loss_history, entry_price)          // 添加入场价格作为初始保护性止损
 
-var take_profit_history = array.new<float>(0)
-var stop_loss_history = array.new<float>(0)
-
-// 动态止损止盈更新逻辑
-if strategy.position_size > 0
-    current_stop = low - atr_value
-    current_take_profit = high + atr_value
-    
-    if close > entry_price
-        // 趋势符合预期时，止损只能上调，不能低于入场止损
-        if current_stop > long_stop_loss or na(long_stop_loss)
-            long_stop_loss := math.max(current_stop, entry_stop_loss)
-            // 记录止损历史，同时将入场价格也作为止损位考虑
-            array.push(stop_loss_history, long_stop_loss)
-            array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
-            if array.size(stop_loss_history) > 50
-                array.shift(stop_loss_history)
-                array.shift(stop_loss_history)
-        
-        if current_take_profit > long_take_profit or na(long_take_profit)
-            long_take_profit := current_take_profit
-            array.push(take_profit_history, long_take_profit)
-            if array.size(take_profit_history) > 50
-                array.shift(take_profit_history)
-    else
-        // 趋势不符合预期时，更新止损历史但不上调，入场价格始终在数组中
-        array.push(stop_loss_history, current_stop)
-        array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
-        if array.size(stop_loss_history) > 50
-            array.shift(stop_loss_history)
-            array.shift(stop_loss_history)
-            
-else if strategy.position_size < 0
-    current_stop = high + atr_value
-    current_take_profit = low - atr_value
-    
-    if close < entry_price
-        // 趋势符合预期时，止损只能下调，不能高于入场止损
-        if current_stop < short_stop_loss or na(short_stop_loss)
-            short_stop_loss := math.min(current_stop, entry_stop_loss)
-            // 记录止损历史，同时将入场价格也作为止损位考虑
-            array.push(stop_loss_history, short_stop_loss)
-            array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
-            if array.size(stop_loss_history) > 50
-                array.shift(stop_loss_history)
-                array.shift(stop_loss_history)
-        
-        if current_take_profit < short_take_profit or na(short_take_profit)
-            short_take_profit := current_take_profit
-            array.push(take_profit_history, short_take_profit)
-            if array.size(take_profit_history) > 50
-                array.shift(take_profit_history)
-    else
-        // 趋势不符合预期时，更新止损历史但不下调，入场价格始终在数组中
-        array.push(stop_loss_history, current_stop)
-        array.push(stop_loss_history, entry_price)  // 入场价格作为保护性止损
-        if array.size(stop_loss_history) > 50
-            array.shift(stop_loss_history)
-            array.shift(stop_loss_history)
-
-// 交易逻辑
-if filtered_long_signal and strategy.position_size == 0
-    strategy.entry("Long", strategy.long)
+// 空头开仓逻辑
+if filtered_short_signal and strategy.position_size == 0  // 如果有过滤后的空头信号且当前无仓位
+    strategy.entry("Short", strategy.short)  // 开空头仓位
+    // 记录入场信息（逻辑与多头相反）
     entry_price := close
-    entry_stop_loss := low - atr_value
-    entry_take_profit := close + atr_value
-    long_stop_loss := entry_stop_loss
-    long_take_profit := entry_take_profit
-    array.clear(take_profit_history)
-    array.clear(stop_loss_history)
-    array.push(take_profit_history, entry_take_profit)
-    array.push(stop_loss_history, entry_stop_loss)
-    array.push(stop_loss_history, entry_price)  // 入场价格作为初始保护性止损
-
-if filtered_short_signal and strategy.position_size == 0
-    strategy.entry("Short", strategy.short)
-    entry_price := close
-    entry_stop_loss := high + atr_value
-    entry_take_profit := close - atr_value
+    entry_stop_loss := high + atr_value      // 空头止损位在上方
+    entry_take_profit := close - atr_value   // 空头止盈位在下方
     short_stop_loss := entry_stop_loss
     short_take_profit := entry_take_profit
+    // 初始化历史数组
     array.clear(take_profit_history)
     array.clear(stop_loss_history)
     array.push(take_profit_history, entry_take_profit)
@@ -306,161 +354,197 @@ if filtered_short_signal and strategy.position_size == 0
     array.push(stop_loss_history, entry_price)  // 入场价格作为初始保护性止损
 
 // ==== 获取最近的止盈止损位函数 ====
+// 获取距离当前价格最近的止盈位
 get_nearest_take_profit() =>
-    nearest_tp = float(na)
-    if array.size(take_profit_history) > 0
-        for i = array.size(take_profit_history) - 1 to 0
-            tp_level = array.get(take_profit_history, i)
-            if strategy.position_size > 0
-                // 多头：找到最近的（最小的）止盈位
+    nearest_tp = float(na)  // 初始化最近止盈位为空
+    if array.size(take_profit_history) > 0  // 如果止盈历史数组不为空
+        for i = array.size(take_profit_history) - 1 to 0  // 从最新到最旧遍历
+            tp_level = array.get(take_profit_history, i)  // 获取止盈位
+            if strategy.position_size > 0  // 多头仓位
+                // 多头：找到最近的（最小的）止盈位，且价格还未达到
                 if close <= tp_level and (na(nearest_tp) or tp_level < nearest_tp)
                     nearest_tp := tp_level
-            else if strategy.position_size < 0
-                // 空头：找到最近的（最大的）止盈位
+            else if strategy.position_size < 0  // 空头仓位
+                // 空头：找到最近的（最大的）止盈位，且价格还未达到
                 if close >= tp_level and (na(nearest_tp) or tp_level > nearest_tp)
                     nearest_tp := tp_level
-    nearest_tp
+    nearest_tp  // 返回最近的止盈位
 
+// 获取距离当前价格最近的止损位
 get_nearest_stop_loss() =>
-    nearest_sl = float(na)
-    if array.size(stop_loss_history) > 0
-        for i = array.size(stop_loss_history) - 1 to 0
-            sl_level = array.get(stop_loss_history, i)
-            if strategy.position_size > 0
-                // 多头：找到最近的（最大的）止损位，包括入场价格
+    nearest_sl = float(na)  // 初始化最近止损位为空
+    if array.size(stop_loss_history) > 0  // 如果止损历史数组不为空
+        for i = array.size(stop_loss_history) - 1 to 0  // 从最新到最旧遍历
+            sl_level = array.get(stop_loss_history, i)  // 获取止损位
+            if strategy.position_size > 0  // 多头仓位
+                // 多头：找到最近的（最大的）止损位，包括入场价格保护
                 if close >= sl_level and (na(nearest_sl) or sl_level > nearest_sl)
                     nearest_sl := sl_level
-            else if strategy.position_size < 0
-                // 空头：找到最近的（最小的）止损位，包括入场价格
+            else if strategy.position_size < 0  // 空头仓位
+                // 空头：找到最近的（最小的）止损位，包括入场价格保护
                 if close <= sl_level and (na(nearest_sl) or sl_level < nearest_sl)
                     nearest_sl := sl_level
-    nearest_sl
+    nearest_sl  // 返回最近的止损位
 
-// 高级平仓条件
-// 先声明变量
-nearest_tp = float(na)
-nearest_sl = float(na)
-
-// 平仓条件
-if strategy.position_size > 0
+// ==== 平仓条件 ====
+// 多头平仓逻辑
+if strategy.position_size > 0  // 如果持有多头仓位
     // 多头平仓逻辑
-    nearest_tp := get_nearest_take_profit()
-    nearest_sl := get_nearest_stop_loss()
+    nearest_tp := get_nearest_take_profit()  // 获取最近的止盈位
+    nearest_sl := get_nearest_stop_loss()    // 获取最近的止损位
     
+    // 优先检查：趋势反转立即市价离场（最高优先级）
+    if not check_trend_continuation()  // 如果趋势不再有利（MACD、RSI任一条件不满足）
+        strategy.close("Long", comment="Trend Reversal Exit")  // 立即平仓，注释为趋势反转退出
+        // 重置所有变量
+        long_take_profit := na
+        long_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
     // 1.3 价格趋势变化时，命中最近止盈位
-    if not na(nearest_tp) and close <= nearest_tp and close < entry_price
-        strategy.close("Long", comment="Nearest TP Hit")
+    else if not na(nearest_tp) and close >= nearest_tp  // 如果价格达到最近的止盈位
+        strategy.close("Long", comment="Nearest TP Hit")  // 在最近止盈位平仓
         // 重置变量
         long_take_profit := na
         long_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
-    // 2. 命中最近止损位
-    else if not na(nearest_sl) and close <= nearest_sl
-        strategy.close("Long", comment="Nearest SL Hit")
+    // 2. 命中最近止损位（包括入场价格保护）
+    else if not na(nearest_sl) and close <= nearest_sl  // 如果价格跌破最近的止损位
+        strategy.close("Long", comment="Nearest SL Hit")  // 在最近止损位平仓
         // 重置变量
         long_take_profit := na
         long_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
-    // 传统止损止盈
-    else if filtered_short_signal or close <= long_stop_loss
-        strategy.close("Long", comment="Exit Long")
+    // 传统止损止盈（备用机制）
+    else if filtered_short_signal or (not na(long_stop_loss) and close <= long_stop_loss)  // 反向信号或传统止损
+        strategy.close("Long", comment="Exit Long")  // 传统方式平仓
         long_take_profit := na
         long_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
-    else if close >= long_take_profit
-        strategy.close("Long", comment="TP Long")
+    else if not na(long_take_profit) and close >= long_take_profit  // 传统止盈
+        strategy.close("Long", comment="TP Long")  // 传统止盈平仓
         long_take_profit := na
         long_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
 
-if strategy.position_size < 0
+// 空头平仓逻辑（逻辑与多头相反）
+if strategy.position_size < 0  // 如果持有空头仓位
     // 空头平仓逻辑
-    nearest_tp := get_nearest_take_profit()
-    nearest_sl := get_nearest_stop_loss()
+    nearest_tp := get_nearest_take_profit()  // 获取最近的止盈位
+    nearest_sl := get_nearest_stop_loss()    // 获取最近的止损位
     
+    // 优先检查：趋势反转立即市价离场（最高优先级）
+    if not check_trend_continuation()  // 如果趋势不再有利
+        strategy.close("Short", comment="Trend Reversal Exit")  // 立即平仓
+        // 重置变量
+        short_take_profit := na
+        short_stop_loss := na
+        array.clear(take_profit_history)
+        array.clear(stop_loss_history)
     // 1.3 价格趋势变化时，命中最近止盈位
-    if not na(nearest_tp) and close >= nearest_tp and close > entry_price
-        strategy.close("Short", comment="Nearest TP Hit")
+    else if not na(nearest_tp) and close <= nearest_tp  // 如果价格达到最近的止盈位（空头向下）
+        strategy.close("Short", comment="Nearest TP Hit")  // 在最近止盈位平仓
         // 重置变量
         short_take_profit := na
         short_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
     // 2. 命中最近止损位
-    else if not na(nearest_sl) and close >= nearest_sl
-        strategy.close("Short", comment="Nearest SL Hit")
+    else if not na(nearest_sl) and close >= nearest_sl  // 如果价格突破最近的止损位（空头向上）
+        strategy.close("Short", comment="Nearest SL Hit")  // 在最近止损位平仓
         // 重置变量
         short_take_profit := na
         short_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
-    // 传统止损止盈
-    else if filtered_long_signal or close >= short_stop_loss
-        strategy.close("Short", comment="Exit Short")
+    // 传统止损止盈（备用机制）
+    else if filtered_long_signal or (not na(short_stop_loss) and close >= short_stop_loss)  // 反向信号或传统止损
+        strategy.close("Short", comment="Exit Short")  // 传统方式平仓
         short_take_profit := na
         short_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
-    else if close <= short_take_profit
-        strategy.close("Short", comment="TP Short")
+    else if not na(short_take_profit) and close <= short_take_profit  // 传统止盈
+        strategy.close("Short", comment="TP Short")  // 传统止盈平仓
         short_take_profit := na
         short_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
 
-// 绘制
-plot(atr_upper, title="ATR Upper", color=color.red)
-plot(atr_lower, title="ATR Lower", color=color.green)
-plot(strategy.position_size > 0 ? long_stop_loss : na, title="Long Stop Loss", color=color.red, linewidth=2)
-plot(strategy.position_size > 0 ? long_take_profit : na, title="Long Take Profit", color=color.green, linewidth=2)
-plot(strategy.position_size < 0 ? short_stop_loss : na, title="Short Stop Loss", color=color.red, linewidth=2)
-plot(strategy.position_size < 0 ? short_take_profit : na, title="Short Take Profit", color=color.green, linewidth=2)
+// ==== 图形绘制 ====
+// 绘制ATR通道线
+plot(atr_upper, title="ATR Upper", color=color.red)    // 绘制ATR上轨（阻力线）
+plot(atr_lower, title="ATR Lower", color=color.green)  // 绘制ATR下轨（支撑线）
 
-plotshape(filtered_long_signal, title="Long Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal)
-plotshape(filtered_short_signal, title="Short Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal)
+// 绘制动态止损止盈线（仅在有持仓时显示）
+plot(strategy.position_size > 0 ? long_stop_loss : na, title="Long Stop Loss", color=color.red, linewidth=2)       // 多头止损线
+plot(strategy.position_size > 0 ? long_take_profit : na, title="Long Take Profit", color=color.green, linewidth=2) // 多头止盈线
+plot(strategy.position_size < 0 ? short_stop_loss : na, title="Short Stop Loss", color=color.red, linewidth=2)     // 空头止损线
+plot(strategy.position_size < 0 ? short_take_profit : na, title="Short Take Profit", color=color.green, linewidth=2) // 空头止盈线
 
-// 信息表格
-var info_table = table.new(position.top_right, 2, 8, border_width=1)
-if barstate.islast
+// 绘制交易信号标记
+plotshape(filtered_long_signal, title="Long Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal)    // 多头信号：绿色向上三角
+plotshape(filtered_short_signal, title="Short Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal)  // 空头信号：红色向下三角
+
+// ==== 信息表格 ====
+// 创建信息表格显示策略关键信息
+var info_table = table.new(position.top_right, 2, 10, border_width=1)  // 在图表右上角创建2列10行的表格
+if barstate.islast  // 仅在最后一根K线更新表格（提高性能）
+    // 第1行：ATR值
     table.cell(info_table, 0, 0, "ATR Value", text_color=color.white, bgcolor=color.blue)
     table.cell(info_table, 1, 0, str.tostring(atr_value, "#.####"), text_color=color.white, bgcolor=color.blue)
+    
+    // 第2行：交易方向设置
     table.cell(info_table, 0, 1, "Trade Direction", text_color=color.white, bgcolor=color.orange)
     table.cell(info_table, 1, 1, trade_direction, text_color=color.white, bgcolor=color.orange)
+    
+    // 第3行：当前持仓状态
     table.cell(info_table, 0, 2, "Position", text_color=color.white, bgcolor=color.gray)
     table.cell(info_table, 1, 2, strategy.position_size > 0 ? "Long" : strategy.position_size < 0 ? "Short" : "Flat", text_color=color.white, bgcolor=color.gray)
+    
+    // 第4行：入场价格
     table.cell(info_table, 0, 3, "Entry Price", text_color=color.white, bgcolor=color.yellow)
     table.cell(info_table, 1, 3, not na(entry_price) ? str.tostring(entry_price, "#.####") : "N/A", text_color=color.white, bgcolor=color.yellow)
-    table.cell(info_table, 0, 4, "Stop Loss", text_color=color.white, bgcolor=color.red)
-    table.cell(info_table, 1, 4, strategy.position_size > 0 ? str.tostring(long_stop_loss, "#.####") : strategy.position_size < 0 ? str.tostring(short_stop_loss, "#.####") : "N/A", text_color=color.white, bgcolor=color.red)
-    table.cell(info_table, 0, 5, "Take Profit", text_color=color.white, bgcolor=color.green)
-    table.cell(info_table, 1, 5, strategy.position_size > 0 ? str.tostring(long_take_profit, "#.####") : strategy.position_size < 0 ? str.tostring(short_take_profit, "#.####") : "N/A", text_color=color.white, bgcolor=color.green)
     
-    // 新增：止盈价位历史数组显示
-    table.cell(info_table, 0, 6, "TP History", text_color=color.white, bgcolor=color.purple)
+    // 第5行：当前止损位
+    table.cell(info_table, 0, 4, "Stop Loss", text_color=color.white, bgcolor=color.red)
+    table.cell(info_table, 1, 4, strategy.position_size > 0 ? (not na(long_stop_loss) ? str.tostring(long_stop_loss, "#.####") : "N/A") : strategy.position_size < 0 ? (not na(short_stop_loss) ? str.tostring(short_stop_loss, "#.####") : "N/A") : "N/A", text_color=color.white, bgcolor=color.red)
+    
+    // 第6行：当前止盈位
+    table.cell(info_table, 0, 5, "Take Profit", text_color=color.white, bgcolor=color.green)
+    table.cell(info_table, 1, 5, strategy.position_size > 0 ? (not na(long_take_profit) ? str.tostring(long_take_profit, "#.####") : "N/A") : strategy.position_size < 0 ? (not na(short_take_profit) ? str.tostring(short_take_profit, "#.####") : "N/A") : "N/A", text_color=color.white, bgcolor=color.green)
+    
+    // 第7行：趋势分析状态
+    table.cell(info_table, 0, 6, "Trend Analysis", text_color=color.white, bgcolor=color.purple)
+    trend_status = enable_trend_analysis ? (check_trend_continuation() ? "Favorable" : "Unfavorable") : "Disabled"  // 趋势状态：有利/不利/禁用
+    table.cell(info_table, 1, 6, trend_status, text_color=color.white, bgcolor=color.purple)
+    
+    // 第8行：止盈价位历史数组显示（显示最近5个）
+    table.cell(info_table, 0, 7, "TP History", text_color=color.white, bgcolor=color.teal)
     tp_history_text = ""
-    if array.size(take_profit_history) > 0
+    if array.size(take_profit_history) > 0  // 如果有止盈历史
         tp_history_text := "["
-        for i = 0 to math.min(array.size(take_profit_history) - 1, 4) // 最多显示5个
+        for i = 0 to math.min(array.size(take_profit_history) - 1, 4)  // 最多显示5个止盈位
             if i > 0
                 tp_history_text := tp_history_text + ", "
             tp_history_text := tp_history_text + str.tostring(array.get(take_profit_history, i), "#.##")
-        if array.size(take_profit_history) > 5
+        if array.size(take_profit_history) > 5  // 如果超过5个，显示省略号
             tp_history_text := tp_history_text + "..."
         tp_history_text := tp_history_text + "]"
     else
-        tp_history_text := "Empty"
-    table.cell(info_table, 1, 6, tp_history_text, text_color=color.white, bgcolor=color.purple)
+        tp_history_text := "Empty"  // 数组为空时显示
+    table.cell(info_table, 1, 7, tp_history_text, text_color=color.white, bgcolor=color.teal)
     
-    // 新增：止损价位历史数组显示
-    table.cell(info_table, 0, 7, "SL History", text_color=color.white, bgcolor=color.maroon)
+    // 第9行：止损价位历史数组显示（显示最近5个）
+    table.cell(info_table, 0, 8, "SL History", text_color=color.white, bgcolor=color.maroon)
     sl_history_text = ""
-    if array.size(stop_loss_history) > 0
+    if array.size(stop_loss_history) > 0  // 如果有止损历史
         sl_history_text := "["
-        for i = 0 to math.min(array.size(stop_loss_history) - 1, 4) // 最多显示5个
+        for i = 0 to math.min(array.size(stop_loss_history) - 1, 4)  // 最多显示5个止损位
             if i > 0
                 sl_history_text := sl_history_text + ", "
             sl_history_text := sl_history_text + str.tostring(array.get(stop_loss_history, i), "#.##")
@@ -469,4 +553,9 @@ if barstate.islast
         sl_history_text := sl_history_text + "]"
     else
         sl_history_text := "Empty"
-    table.cell(info_table, 1, 7, sl_history_text, text_color=color.white, bgcolor=color.maroon)
+    table.cell(info_table, 1, 8, sl_history_text, text_color=color.white, bgcolor=color.maroon)
+    
+    // 第10行：5分钟级别指标状态
+    table.cell(info_table, 0, 9, "5m MACD/RSI", text_color=color.white, bgcolor=color.navy)
+    macd_rsi_status = str.tostring(macd_5m, "#.####") + "/" + str.tostring(rsi_5m, "#.##")  // 显示5分钟MACD直方图和RSI值
+    table.cell(info_table, 1, 9, macd_rsi_status, text_color=color.white, bgcolor=color.navy)
