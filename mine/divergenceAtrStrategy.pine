@@ -16,7 +16,7 @@ atr_smoothing = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA
 atr_multiplier = input.float(1.5, "ATR Multiplier")  // ATR倍数：放大ATR值来设置止损距离
 
 // ==== 交易方向选择 ====
-trade_direction = input.string("Both", "Trade Direction", options=["Long Only", "Short Only", "Both"])  // 交易方向：只做多、只做空或双向交易
+trade_direction = input.string("Long Only", "Trade Direction", options=["Long Only", "Short Only", "Both"])  // 交易方向：只做多、只做空或双向交易
 
 // ==== 高级趋势判断参数 ====
 enable_trend_analysis = input.bool(true, "Enable Advanced Trend Analysis")  // 是否启用高级趋势分析：控制是否使用5分钟级别趋势判断
@@ -65,21 +65,25 @@ atr_upper = high + atr_value  // ATR上轨：当前最高价加上ATR值，作�
 atr_lower = low - atr_value  // ATR下轨：当前最低价减去ATR值，作为支撑参考
 
 // ==== 技术指标计算 ====
-// 计算各种技术指标用于背离检测
-rsi_val = ta.rsi(close, 14)  // RSI指标：相对强弱指数，14周期
-[macd_val, signal, deltamacd] = ta.macd(close, fast_length, slow_length, signal_length)  // MACD三线：主线、信号线、直方图
-moment = ta.mom(close, 10)  // 动量指标：当前价格与10周期前价格的差值
-cci_val = ta.cci(close, 10)  // 商品通道指数：衡量价格偏离移动平均的程度
-Obv = ta.obv  // 成交量平衡指标：累计成交量变化
-stk = ta.sma(ta.stoch(close, high, low, 14), 3)  // 随机指标K值：经过3周期平滑的随机K值
-maFast = ta.vwma(close, fast_length)  // 成交量加权快速移动平均
-maSlow = ta.vwma(close, slow_length)  // 成交量加权慢速移动平均
-vwmacd = maFast - maSlow  // 成交量加权MACD：快线减慢线
-// 计算资金流量指标
-Cmfm = ((close-low) - (high-close)) / (high - low)  // 资金流量倍数：衡量收盘价在当日振幅中的位置
-Cmfv = Cmfm * volume  // 资金流量成交量：倍数乘以成交量
-cmf = ta.sma(Cmfv, 21) / ta.sma(volume,21)  // 资金流量指标：21周期平均资金流量除以平均成交量
-Mfi = ta.mfi(hlc3, 14)  // 资金流量指数：结合价格和成交量的动量指标
+// 计算各种技术指标用于背离检测（使用30分钟数据）
+get_indicators_30m() => 
+    rsi_val = ta.rsi(close, 14)  // RSI指标：相对强弱指数，14周期
+    [macd_val, signal, deltamacd] = ta.macd(close, fast_length, slow_length, signal_length)  // MACD三线：主线、信号线、直方图
+    moment = ta.mom(close, 10)  // 动量指标：当前价格与10周期前价格的差值
+    cci_val = ta.cci(close, 10)  // 商品通道指数：衡量价格偏离移动平均的程度
+    Obv = ta.obv  // 成交量平衡指标：累计成交量变化
+    stk = ta.sma(ta.stoch(close, high, low, 14), 3)  // 随机指标K值：经过3周期平滑的随机K值
+    maFast = ta.vwma(close, fast_length)  // 成交量加权快速移动平均
+    maSlow = ta.vwma(close, slow_length)  // 成交量加权慢速移动平均
+    vwmacd = maFast - maSlow  // 成交量加权MACD：快线减慢线
+    // 计算资金流量指标
+    Cmfm = ((close-low) - (high-close)) / (high - low)  // 资金流量倍数：衡量收盘价在当日振幅中的位置
+    Cmfv = Cmfm * volume  // 资金流量成交量：倍数乘以成交量
+    cmf = ta.sma(Cmfv, 21) / ta.sma(volume,21)  // 资金流量指标：21周期平均资金流量除以平均成交量
+    Mfi = ta.mfi(hlc3, 14)  // 资金流量指数：结合价格和成交量的动量指标
+    [rsi_val, macd_val, signal, deltamacd, moment, cci_val, Obv, stk, maFast, maSlow, vwmacd, Cmfm, Cmfv,cmf,Mfi]
+// 通过request.security获取30分钟数据
+[rsi_val, macd_val, signal, deltamacd, moment, cci_val, Obv, stk, maFast, maSlow, vwmacd, Cmfm, Cmfv,cmf,Mfi] = request.security(syminfo.tickerid, "30", get_indicators_30m())    
 
 // ==== 高级趋势分析指标 ====
 // 5分钟时间框架数据函数
@@ -99,6 +103,7 @@ check_trend_continuation() =>
         // 1. MACD指标斜率方向检查
         macd_slope_bullish = macd_line_5m > macd_line_5m[1]  // MACD主线向上：当前值大于前一根K线值
         macd_slope_bearish = macd_line_5m < macd_line_5m[1]  // MACD主线向下：当前值小于前一根K线值
+        log.info("当前macd线值:{0}前一根macd线值:{1}",str.tostring(macd_line_5m),str.tostring(macd_line_5m[1]))
         
         // 2. MACD直方图高度持续与趋势同方向增高检查
         macd_histogram_increasing = true  // 初始化：假设直方图持续增高
@@ -110,7 +115,7 @@ check_trend_continuation() =>
                 macd_histogram_increasing := false  // 则不是持续增高
             if macd_5m[i] >= macd_5m[i + 1]  // 如果当前直方图值不小于前一个
                 macd_histogram_decreasing := false  // 则不是持续降低
-        
+        log.info("当前macd柱:{0}前一根macd柱:{1}",str.tostring(macd_5m),str.tostring(macd_5m[1]))
         // 3. RSI随交易方向同步变化检查
         rsi_bullish_trend = true  // 初始化：假设RSI呈上升趋势
         rsi_bearish_trend = true  // 初始化：假设RSI呈下降趋势
@@ -121,7 +126,10 @@ check_trend_continuation() =>
                 rsi_bullish_trend := false  // 则不是上升趋势
             if rsi_5m[i] >= rsi_5m[i + 1]  // 如果当前RSI不小于前一个
                 rsi_bearish_trend := false  // 则不是下降趋势
-        log.info("macd_slope_bullish:"+str.tostring(macd_slope_bullish)+",macd_histogram_increasing:"+str.tostring(macd_histogram_increasing)+",rsi_bullish_trend:"+str.tostring(rsi_bullish_trend))
+        log.info("当前rsi线值:{0},前一根rsi线值:{1}",rsi_5m,rsi_5m[1])
+        log.info("macd指标斜率:{0},macd直方图高度:{1},rsi趋势:{2}",macd_slope_bullish,macd_histogram_increasing,rsi_bullish_trend)
+        // log.info("macd线值：{0}",macd_5m)
+        // log.info("当前macd主线值:{0},上一根macd主线值:{1},当前macd直方图:{2},上一根macd直方图:{3},当前rsi值:{4},前一个rsi值:{5}",macd_line_5m,macd_line_5m[1],)
         // 综合趋势判断逻辑
         if strategy.position_size > 0  // 如果当前持有多头仓位
             // 多头持仓：需要MACD斜率向上 + 直方图持续增高 + RSI向上
@@ -135,9 +143,10 @@ check_trend_continuation() =>
             true  // 返回true，允许开新仓
 
 // ==== 枢轴点检测 ====
-// 检测价格的局部高点和低点
-ph = ta.pivothigh((source == "Close" ? close : high), prd, prd)  // 检测枢轴高点：根据设置使用收盘价或最高价
-pl = ta.pivotlow((source == "Close" ? close : low), prd, prd)  // 检测枢轴低点：根据设置使用收盘价或最低价
+// 检测价格的局部高点和低点（使用30分钟数据）
+ph = request.security(syminfo.tickerid, "30", ta.pivothigh((source == "Close" ? close : high), prd, prd))  // 30分钟枢轴高点
+pl = request.security(syminfo.tickerid, "30", ta.pivotlow((source == "Close" ? close : low), prd, prd))   // 30分钟枢轴低点
+
 
 // 判断是否检测到枢轴点
 ph_detected = not na(ph)  // 检测到枢轴高点：ph不为空值
@@ -320,6 +329,18 @@ short_signal = neg_reg_div_detected or neg_hid_div_detected  // 空头信号：�
 filtered_long_signal = long_signal and (trade_direction == "Long Only" or trade_direction == "Both")    // 过滤后的多头信号
 filtered_short_signal = short_signal and (trade_direction == "Short Only" or trade_direction == "Both")  // 过滤后的空头信号
 
+// ==== 高级动态止损止盈系统 ====
+var float long_stop_loss = na
+var float long_take_profit = na
+var float short_stop_loss = na
+var float short_take_profit = na
+var float entry_price = na
+var float entry_stop_loss = na
+var float entry_take_profit = na
+
+var take_profit_history = array.new<float>(0)
+var stop_loss_history = array.new<float>(0)
+
 // ==== 交易逻辑 ====
 // 多头开仓逻辑
 if filtered_long_signal and strategy.position_size == 0  // 如果有过滤后的多头信号且当前无仓位
@@ -336,6 +357,7 @@ if filtered_long_signal and strategy.position_size == 0  // 如果有过滤后�
     array.push(take_profit_history, entry_take_profit)  // 添加初始止盈位
     array.push(stop_loss_history, entry_stop_loss)      // 添加初始止损位
     array.push(stop_loss_history, entry_price)          // 添加入场价格作为初始保护性止损
+    log.info("多头开仓:\n正向常规背离:{0},正向隐藏背离:{1},开仓价格:{2},入场止损价格:{3},入场止盈价格:{4}",pos_reg_div_detected,pos_hid_div_detected,entry_price,long_stop_loss,long_take_profit)
 
 // 空头开仓逻辑
 if filtered_short_signal and strategy.position_size == 0  // 如果有过滤后的空头信号且当前无仓位
@@ -387,6 +409,9 @@ get_nearest_stop_loss() =>
     nearest_sl  // 返回最近的止损位
 
 // ==== 平仓条件 ====
+// 先声明变量
+nearest_tp = float(na)
+nearest_sl = float(na)
 // 多头平仓逻辑
 if strategy.position_size > 0  // 如果持有多头仓位
     // 多头平仓逻辑
@@ -401,6 +426,8 @@ if strategy.position_size > 0  // 如果持有多头仓位
         long_stop_loss := na
         array.clear(take_profit_history)
         array.clear(stop_loss_history)
+        log.info("多头平仓:平仓原因:趋势反转")
+
     // 1.3 价格趋势变化时，命中最近止盈位
     else if not na(nearest_tp) and close >= nearest_tp  // 如果价格达到最近的止盈位
         strategy.close("Long", comment="Nearest TP Hit")  // 在最近止盈位平仓
